@@ -25,8 +25,9 @@
    ```
 
    ---
+> Tip: You may need to input "yes" to download datasets first time running the program.
 
-> Tip: Remember to modify the CPU configuration in the program before running each program.
+> Tip: Remember to modify the CPU configuration and dataset path in the program before running each program.
 
 3. Scalability test 
    Run `gnn_train_scal.py` with different trainer core numbers for scalability test.

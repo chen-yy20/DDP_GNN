@@ -12,7 +12,7 @@ import os
 total_cpu = psutil.cpu_count(logical=False)
 # define the acquisition function, can be choose from ['LCB', 'EI', 'PI']
 acq_func = 'EI'  
-evaluated = {}
+
 
 # define the objective function
 def objective_function(x):
@@ -22,77 +22,119 @@ def objective_function(x):
     # if x in evaluated:
     #     print("already evaluated:", x)
     #     return evaluated[x]
-    if (n_process, n_sampler, n_trainer) in evaluated:
-        print("already evaluated:", (n_process, n_sampler, n_trainer))
-        return evaluated[(n_process, n_sampler, n_trainer)]
-
     if n_process*(n_sampler+n_trainer) > total_cpu:
         return max_val
     
-    command = ["python", "PyG/gnn_train.py", "--dataset", arguments.dataset, '--cpu_process', str(int(n_process)), '--n_sampler', str(int(n_sampler)), '--n_trainer', str(int(n_trainer))]
-    print(command)
+    command = ["python", "PyG/gnn_train.py", 
+               "--model", arguments.model, 
+               "--sampler", arguments.sampler, 
+               "--dataset", arguments.dataset, 
+               '--cpu_process', str(int(n_process)), 
+               '--n_sampler', str(int(n_sampler)), 
+               '--n_trainer', str(int(n_trainer)), 
+               '--batch_num', str(batch_num), 
+               ]
+    print(n_process, n_sampler, n_trainer)
     try:
         # Execute the external script and capture its output
         # result = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=600)
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=600).stdout
+        # result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
+        # result = result.stdout
+        result = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=timeout)
+        # print(result)
         output_lines = result.split("\n")
         # Search for the line containing "total_time" and extract the value
-        objective_values = []
+        objective_value = max_val
         for line in output_lines:
             if "total_time" in line:
                 objective_value = float(line.split()[1])
                 print("objective_value:", objective_value)
-                objective_values.append(objective_value)
                 break
-        if objective_values == []:
-            objective_value = max_val
-        else: 
-            objective_value = np.mean(objective_values)
-        evaluated[(n_process, n_sampler, n_trainer)] = objective_value
         return objective_value
-    
-    except subprocess.CalledProcessError as e:
-        # Handle errors if the external script fails
-        print("External script failed with error:", e)
-        return max_val
+    except:
+        print("External script failed with error")
+    return max_val
 
 
 
 # Define the searching space of the parameters
-space = [(2, 8), (1, 4), (1,32)] 
+# TODO: You need to change the range of the searching space to adapt to your CPU configuration
+space = [(2, 4), (1, 4), (1,32)] 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset',
                     type=str,
-                    default='ogbn-products',
-                    choices=["ogbn-products", "reddit", "yelp", "flickr"])
+                    default='flickr',
+                    choices=["ogbn-products", "ogbn-papers100M", "reddit", "yelp", "flickr"])
+
+parser.add_argument(
+    "--model",
+    type=str,
+    default= "sage",
+    help="model",
+    choices=["sage", "gcn"],
+)
+
+parser.add_argument(
+    "--sampler",
+    type=str,
+    default= "neighbor",
+    help="sampler",
+    choices=["shadow", "neighbor"],
+)
+
+parser.add_argument(
+    "--batch_num",
+    type=str,
+    default = '0',
+)
 
 arguments = parser.parse_args()
-command = ["python", "PyG/gnn_train.py", "--dataset", arguments.dataset , '--cpu_process', str(2), '--n_sampler', str(1), '--n_trainer', str(1)]
+batch_num = int(arguments.batch_num)
+
+command = ["python", "PyG/gnn_train.py", 
+           "--dataset", arguments.dataset , 
+           "--model", arguments.model, 
+           '--sampler', arguments.sampler, 
+           '--cpu_process', str(2), 
+           '--n_sampler', str(1), 
+           '--n_trainer', str(1),
+           '--batch_num', str(batch_num),
+           ]
 # command = ["python", "PyG/demo.py"]
-print("begin the first run, command: ", command)
+timeout = 1200 if arguments.dataset == 'ogbn-papers100M' else 600 
+print("Set timeout: ", timeout)
+print("Begin the first run, command: ", command)
 # result = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=600)
-result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=600)
-print(result.stdout)
-result = result.stdout
-output_lines = result.split("\n")
-for line in output_lines:
-    if "total_time" in line:
-        max_val = float(line.split()[1])
-        break
+try:
+    
+    # result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
+    result = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=600)
+    # print(result)
+    max_val = 1000000
+    output_lines = result.split("\n")
+    for line in output_lines:
+        if "total_time" in line:
+            max_val = float(line.split()[1])
+            break
+except subprocess.TimeoutExpired as e:
+    print("External script timeout:", e)
+    max_val = 100000
 print("upper bound:", max_val)
 
 # Run the Bayesian optimization algorithm, using the Gaussian process as the surrogate model
-result = gp_minimize(objective_function, space, n_calls=70, random_state=3, acq_func=acq_func)
+result = gp_minimize(objective_function, space, n_calls=30, random_state=3, acq_func=acq_func)
+print("Best parameter:", result.x)
+print("Minimum output:", result.fun)
 
-if not os.path.exists("PyG/bo_result"):
-    os.mkdir("PyG/bo_result")
+if not os.path.exists("PyG/Result"):
+    os.mkdir("PyG/Result")
 
-with open("PyG/bo_result/bo_{}.txt".format(arguments.dataset), "a") as text_file:
+with open("PyG/Result/Bo_{}_{}.txt".format(arguments.dataset, arguments.model), "a") as text_file:
     text_file.write("Best parameter:" + str(result.x) + "\n")
     text_file.write("Minimum output:" + str(result.fun) + "\n")
     text_file.write("Parameters of each iteration:" + str(result.x_iters) + "\n")
     text_file.write("Output of each iteration:" + str(result.func_vals) + "\n")
 
 plot_convergence(result)
-plt.savefig('PyG/bo_result/convergence_plot_{}.png'.format(arguments.dataset))
+plt.savefig('PyG/Result/convergence_plot_{}.png'.format(arguments.dataset))

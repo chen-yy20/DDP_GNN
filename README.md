@@ -35,6 +35,7 @@ conda install -c conda-forge ogb
 conda install -c conda-forge torchmetrics
 conda install -c conda-forge scikit-optimize
 conda install -c conda-forge matplotlib
+conda install -c conda-forge pytorch_sparse
 ```
 
 6. Fix a bug in the Scikit-Optimization library. Find "transformer.py" which should locate in
